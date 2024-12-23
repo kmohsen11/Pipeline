@@ -1,0 +1,6 @@
+PyQt5
+numpy
+tifffile
+monai
+matplotlib
+torch
