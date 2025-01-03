@@ -1,6 +1,7 @@
-PyQt5
+PyQt5==5.15.7
 numpy
 tifffile
 monai
 matplotlib
 torch
+cellpose
