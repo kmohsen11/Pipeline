@@ -121,6 +121,9 @@ class MainWindow(QMainWindow):
 
     # GUI Updates
     def run_image_augmentation(self):
+        """
+        Handles the image augmentation process via the GUI.
+        """
         input_image = self._get_file("Select Image for Augmentation", "Image Files (*.tiff *.tif *.npy)")
         if not input_image:
             return
@@ -131,12 +134,17 @@ class MainWindow(QMainWindow):
 
         try:
             data = load_data(image_path=input_image)
+            base_name = os.path.splitext(os.path.basename(input_image))[0]
+
             apply_transformations_and_save(
-                data, output_image_dir=output_dir, output_seg_dir=None, num_versions=5
+                data, image_path=input_image, output_image_dir=output_dir, num_versions=5
             )
-            self._show_message("Success", "Image augmentation completed successfully.")
+            print(f"Image augmentation completed for {base_name}. Results saved to {output_dir}.")
+            self._show_message("Success", f"Image augmentation completed for {base_name}.")
         except Exception as e:
+            print(f"Error during image augmentation: {e}")
             self._show_message("Error", f"Image augmentation failed: {e}", is_error=True)
+
 
     def run_segmentation_augmentation(self):
         input_segmentation = self._get_file("Select Segmentation for Augmentation", "Segmentation Files (*.tiff *.tif *.npy)")

@@ -20,9 +20,15 @@ class ImageProcessor3D:
         :param input_path: str, path to the input TIFF image.
         :param output_dir: str, directory to save the output files.
         """
+        # Extract the input filename for consistent output naming
+        input_filename = os.path.basename(input_path)
+
+        # Load, normalize, and process the image
         image_stack = self.load_and_normalize_image(input_path)
         segmented_stack, flows = self.segment_3d(image_stack)
-        self.save_results(image_stack, segmented_stack, flows, output_dir)
+        
+        # Save results with input filename
+        self.save_results(image_stack, segmented_stack, flows, output_dir, input_filename)
 
     def load_and_normalize_image(self, input_path):
         """
@@ -56,7 +62,7 @@ class ImageProcessor3D:
         print("Segmentation completed.")
         return segmented_stack, all_flows
 
-    def save_results(self, image_stack, segmented_stack, flows, output_dir):
+    def save_results(self, image_stack, segmented_stack, flows, output_dir, input_filename):
         """
         Save segmentation results in NPY and TIFF formats.
 
@@ -64,7 +70,10 @@ class ImageProcessor3D:
         :param segmented_stack: Segmented masks.
         :param flows: Flow fields from Cellpose.
         :param output_dir: Directory to save the output files.
+        :param input_filename: Original input file's name.
         """
+        base_name = os.path.splitext(os.path.basename(input_filename))[0]
+
         os.makedirs(output_dir, exist_ok=True)
 
         # Save NPY results
@@ -73,11 +82,11 @@ class ImageProcessor3D:
             "masks": segmented_stack.astype(np.uint16),
             "flows": flows,
         }
-        npy_output_path = os.path.join(output_dir, "segmentation_results.npy")
+        npy_output_path = os.path.join(output_dir, f"{base_name}_segmentation_results.npy")
         np.save(npy_output_path, output_data)
 
         # Save segmented stack as TIFF
-        tiff_output_path = os.path.join(output_dir, "segmented_stack.tif")
+        tiff_output_path = os.path.join(output_dir, f"{base_name}_segmented.tiff")
         tiff.imwrite(tiff_output_path, segmented_stack)
 
         print(f"Results saved to:\n- {npy_output_path}\n- {tiff_output_path}")

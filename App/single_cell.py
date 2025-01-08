@@ -10,6 +10,9 @@ def save_cells_with_volumes(segmented_stack_path, output_dir, voxel_size):
     :param output_dir: str, directory to save the individual cell files.
     :param voxel_size: tuple, (x, y, z) dimensions of a voxel in microns.
     """
+    # Extract base name from the input file
+    base_name = os.path.splitext(os.path.basename(segmented_stack_path))[0]
+
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
@@ -42,11 +45,11 @@ def save_cells_with_volumes(segmented_stack_path, output_dir, voxel_size):
         print(f"Cell ID {cell_id} volume: {physical_volume:.2f} microns^3")
 
         # Save cell data as .npy
-        npy_path = os.path.join(output_dir, f'cell_{cell_id}.npy')
+        npy_path = os.path.join(output_dir, f'{base_name}_cell_{cell_id}.npy')
         np.save(npy_path, cell_mask)
 
-        # Save cell data as .tif
-        tif_path = os.path.join(output_dir, f'cell_{cell_id}.tif')
+        # Save cell data as .tiff
+        tif_path = os.path.join(output_dir, f'{base_name}_cell_{cell_id}.tiff')
         tiff.imwrite(tif_path, cell_mask.astype(np.uint16))
 
         print(f"Saved Cell ID {cell_id}: {npy_path} and {tif_path}")

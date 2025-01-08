@@ -67,7 +67,20 @@ def load_data(image_path=None, seg_path=None):
         print(f"Error loading data: {e}")
         raise
 
-def apply_transformations_and_save(data, output_image_dir=None, output_seg_dir=None, num_versions=20):
+def apply_transformations_and_save(data, image_path=None, seg_path=None, output_image_dir=None, output_seg_dir=None, num_versions=20):
+    """
+    Apply transformations to the input data and save augmented versions with consistent naming.
+
+    :param data: dict, containing image and/or segmentation data.
+    :param image_path: str, input image path for naming.
+    :param seg_path: str, input segmentation path for naming.
+    :param output_image_dir: str, directory to save augmented images.
+    :param output_seg_dir: str, directory to save augmented segmentations.
+    :param num_versions: int, number of augmented versions to generate.
+    """
+    base_name = os.path.splitext(os.path.basename(image_path or seg_path))[0]
+
+    # Ensure output directories exist
     if output_image_dir:
         os.makedirs(output_image_dir, exist_ok=True)
     if output_seg_dir:
@@ -77,22 +90,22 @@ def apply_transformations_and_save(data, output_image_dir=None, output_seg_dir=N
 
     for i in range(num_versions):
         try:
-            if "image" in data:
+            if image_path:
                 augmented_image = image_transforms(data["image"])
                 if isinstance(augmented_image, torch.Tensor):
                     augmented_image = augmented_image.numpy()
 
-                output_image_path = os.path.join(output_image_dir, f"augmented_image_{i + 1}.tiff")
+                output_image_path = os.path.join(output_image_dir, f"{base_name}_aug_{i + 1}.tiff")
                 with TiffWriter(output_image_path) as tif:
                     tif.write(augmented_image.astype(np.float32))
                 print(f"Saved version {i + 1} - Image: {output_image_path}")
 
-            if "segmentation" in data:
+            if seg_path:
                 augmented_segmentation = segmentation_transforms(data["segmentation"])
                 if isinstance(augmented_segmentation, torch.Tensor):
                     augmented_segmentation = augmented_segmentation.numpy()
 
-                output_seg_path = os.path.join(output_seg_dir, f"augmented_seg_{i + 1}.npy")
+                output_seg_path = os.path.join(output_seg_dir, f"{base_name}_aug_{i + 1}.npy")
                 np.save(output_seg_path, augmented_segmentation)
                 print(f"Saved version {i + 1} - Segmentation: {output_seg_path}")
 
