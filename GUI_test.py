@@ -2,7 +2,7 @@ import os
 import sys
 import warnings
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QPushButton, QFileDialog, QMessageBox, QWidget, QVBoxLayout
+    QApplication, QMainWindow, QPushButton, QFileDialog, QMessageBox, QWidget, QVBoxLayout, QInputDialog
 )
 from PyQt5.QtGui import QIcon, QPalette, QColor, QFont
 from PyQt5.QtCore import Qt
@@ -145,7 +145,6 @@ class MainWindow(QMainWindow):
             print(f"Error during image augmentation: {e}")
             self._show_message("Error", f"Image augmentation failed: {e}", is_error=True)
 
-
     def run_segmentation_augmentation(self):
         input_segmentation = self._get_file("Select Segmentation for Augmentation", "Segmentation Files (*.tiff *.tif *.npy)")
         if not input_segmentation:
@@ -173,8 +172,14 @@ class MainWindow(QMainWindow):
         if not output_dir:
             return
 
+        # Prompt the user to select the channel (1-4)
+        selected_channel, ok = QInputDialog.getInt(self, "Select Channel", "Enter the channel to use (1-4):", 1, 1, 4, 1)
+        if not ok:
+            return
+
         try:
-            processor = ImageProcessor3D(model_type="cyto")
+            # Pass the selected channel to the ImageProcessor3D instance.
+            processor = ImageProcessor3D(model_type="cyto", selected_channel=selected_channel)
             processor.process_image(input_image, output_dir)
             self._show_message("Success", "Pipeline processing completed successfully.")
         except Exception as e:
