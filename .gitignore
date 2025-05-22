@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# PyTorch/Cellpose
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.safetensors
+.cellpose/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Output files
+*_seg.npy
+*_masks.tif
+*_masks.png
+*_segmented.tif
+*_segmented.png
+*_flows.tif
+*_flows.png
+*_cp.png
+*_cp_masks.png
+
+# Log files
+*.log
+logs/
+tensorboard/
+
+# Data folders (uncomment if needed)
+# data/
+# images/
+# results/
+# weights/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 

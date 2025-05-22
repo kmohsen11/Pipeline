@@ -177,9 +177,28 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
+        # Ask if user wants to use custom weights or default model
+        reply = QMessageBox.question(self, 'Model Selection', 
+                                    'Do you want to use custom weights instead of the default model?',
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        use_custom = reply == QMessageBox.Yes
+        custom_weights_path = None
+        
+        # If user wants custom weights, prompt to select them
+        if use_custom:
+            custom_weights_path = self._get_file("Select Custom Cellpose Weights", "Model Files (*)")
+            if not custom_weights_path:
+                self._show_message("Model Selection", "No custom weights selected. Using default model.")
+                use_custom = False
+
         try:
-            # Pass the selected channel to the ImageProcessor3D instance.
-            processor = ImageProcessor3D(model_type="cyto", selected_channel=selected_channel)
+            # Pass the selected channel and custom weights to the ImageProcessor3D instance.
+            processor = ImageProcessor3D(
+                model_type="cyto", 
+                selected_channel=selected_channel,
+                pretrained_model=custom_weights_path if use_custom else None
+            )
             processor.process_image(input_image, output_dir)
             self._show_message("Success", "Pipeline processing completed successfully.")
         except Exception as e:

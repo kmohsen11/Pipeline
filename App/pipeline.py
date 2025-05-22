@@ -2,6 +2,7 @@ import os
 import numpy as np
 import tifffile as tiff
 from cellpose import models
+import torch
 
 def merge_3d_masks(segmented_stack, overlap_threshold=0.1):
     """
@@ -63,18 +64,93 @@ def merge_3d_masks(segmented_stack, overlap_threshold=0.1):
 
 
 class ImageProcessor3D:
-    def __init__(self, model_type="cyto", multi_channel=False, selected_channel=1):
+    def __init__(self, model_type="cyto", multi_channel=False, selected_channel=1, pretrained_model=None):
         """
         Initialize the ImageProcessor3D with a specific Cellpose model type.
 
         :param model_type: str, type of Cellpose model ('cyto', 'nuclei', 'cyto2').
         :param multi_channel: bool, whether the input image is multi-channel.
         :param selected_channel: int, the channel (1-4) to use for segmentation.
+        :param pretrained_model: str, path to custom model weights. If None, uses the default model.
         """
-        self.model = models.Cellpose(model_type=model_type)
         self.multi_channel = multi_channel
         self.selected_channel = selected_channel
+        self.using_custom_model = pretrained_model is not None
+        
+        if pretrained_model is not None:
+            print(f"Loading custom model weights from: {pretrained_model}")
+            # Check if the file is a PyTorch/Lightning checkpoint
+            if self._is_pytorch_checkpoint(pretrained_model):
+                self.model = self._load_from_pytorch_checkpoint(pretrained_model, model_type)
+            else:
+                # Use standard Cellpose loading for .npy files or other formats
+                self.model = models.CellposeModel(pretrained_model=pretrained_model)
+        else:
+            self.model = models.CellposeModel(model_type=model_type)
+        
         print(f"Cellpose model initialized. Multi-channel mode: {self.multi_channel}. Selected channel: {self.selected_channel}")
+        if self.using_custom_model:
+            print(f"Using custom model weights: {pretrained_model}")
+        else:
+            print(f"Using default model type: {model_type}")
+
+    def _is_pytorch_checkpoint(self, file_path):
+        """
+        Check if the file is a PyTorch/Lightning checkpoint.
+        
+        :param file_path: str, path to the file
+        :return: bool, True if it's a PyTorch checkpoint
+        """
+        try:
+            # Try to load the file as a PyTorch checkpoint
+            checkpoint = torch.load(file_path, map_location="cpu")
+            # Check if it has the expected structure
+            return isinstance(checkpoint, dict) and ("state_dict" in checkpoint or any(k.endswith(".weight") for k in checkpoint.keys()))
+        except:
+            return False
+
+    def _load_from_pytorch_checkpoint(self, checkpoint_path, model_type):
+        """
+        Load a model from a PyTorch/Lightning checkpoint.
+        
+        :param checkpoint_path: str, path to the checkpoint file
+        :param model_type: str, type of model to initialize if needed
+        :return: CellposeModel instance with loaded weights
+        """
+        print("Loading PyTorch/Lightning checkpoint...")
+        try:
+            # Load the checkpoint
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            
+            # Initialize a base CellposeModel
+            model = models.CellposeModel(model_type=model_type)
+            
+            # Extract the state dict
+            if "state_dict" in checkpoint:
+                state_dict = checkpoint["state_dict"]
+            else:
+                state_dict = checkpoint
+            
+            # Load the state dict into the model
+            # First, check if we need to remove 'model.' prefix from keys
+            if all(k.startswith('model.') for k in state_dict.keys() if k.endswith('.weight')):
+                state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
+            
+            # Try to load the state dict
+            try:
+                model.net.load_state_dict(state_dict)
+                print("Successfully loaded weights into model")
+            except Exception as e:
+                print(f"Warning: Could not load state dict directly: {e}")
+                print("Attempting to load with strict=False...")
+                model.net.load_state_dict(state_dict, strict=False)
+                print("Successfully loaded weights with strict=False")
+            
+            return model
+        except Exception as e:
+            print(f"Error loading PyTorch checkpoint: {e}")
+            print("Falling back to default CellposeModel")
+            return models.CellposeModel(model_type=model_type)
 
     def process_image(self, input_path, output_dir):
         """
