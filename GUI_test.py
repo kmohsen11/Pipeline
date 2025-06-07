@@ -10,6 +10,9 @@ from PyQt5.QtCore import Qt
 # Suppress resource tracker warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="resource_tracker")
 
+# Suppress PyTorch's `weights_only` FutureWarning. This is triggered by cellpose.
+warnings.filterwarnings("ignore", message="You are using `torch.load` with `weights_only=False`")
+
 # Set multiprocessing to use 'spawn' (important for macOS)
 import multiprocessing
 multiprocessing.set_start_method("spawn", force=True)
@@ -177,27 +180,49 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
+        # Prompt for cell diameter
+        diameter, ok = QInputDialog.getDouble(self, "Cell Diameter", "Enter cell diameter (pixels). Use 0 for auto-detect:", 30.0, 0, 1000, 1)
+        if not ok:
+            return
+        
+        # If diameter is 0, set to None for auto-detection in Cellpose
+        if diameter == 0:
+            diameter = None
+
+        # Prompt for cell probability threshold (lower values = more sensitive)
+        cellprob_threshold, ok = QInputDialog.getDouble(self, "Cell Probability Threshold", "Enter threshold (-6.0 to 6.0). Lower = more sensitive:", -2.0, -6.0, 6.0, 2)
+        if not ok:
+            return
+            
+        # Prompt for flow threshold
+        flow_threshold, ok = QInputDialog.getDouble(self, "Flow Threshold", "Enter threshold (0.0 to 2.0):", 0.4, 0.0, 2.0, 2)
+        if not ok:
+            return
+
         # Ask if user wants to use custom weights or default model
         reply = QMessageBox.question(self, 'Model Selection', 
                                     'Do you want to use custom weights instead of the default model?',
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         
-        use_custom = reply == QMessageBox.Yes
+        use_custom_weights = reply == QMessageBox.Yes
         custom_weights_path = None
         
         # If user wants custom weights, prompt to select them
-        if use_custom:
+        if use_custom_weights:
             custom_weights_path = self._get_file("Select Custom Cellpose Weights", "Model Files (*)")
             if not custom_weights_path:
                 self._show_message("Model Selection", "No custom weights selected. Using default model.")
-                use_custom = False
+                use_custom_weights = False
 
         try:
             # Pass the selected channel and custom weights to the ImageProcessor3D instance.
             processor = ImageProcessor3D(
                 model_type="cyto", 
                 selected_channel=selected_channel,
-                pretrained_model=custom_weights_path if use_custom else None
+                pretrained_model=custom_weights_path if use_custom_weights else None,
+                diameter=diameter,
+                cellprob_threshold=cellprob_threshold,
+                flow_threshold=flow_threshold
             )
             processor.process_image(input_image, output_dir)
             self._show_message("Success", "Pipeline processing completed successfully.")

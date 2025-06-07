@@ -20,17 +20,29 @@ def merge_3d_masks(segmented_stack, overlap_threshold=0.1):
     merged_mask = np.zeros_like(segmented_stack, dtype=np.int32)
     next_global_id = 1
 
-    # Process the first slice: assign new global labels for each cell.
-    first_slice = segmented_stack[0]
+    # Find the first slice with actual segmentations to start the merging process
+    start_z = -1
+    for z_idx in range(z):
+        if np.any(segmented_stack[z_idx] > 0):
+            start_z = z_idx
+            break
+
+    # If no cells are segmented in any slice, return the empty mask
+    if start_z == -1:
+        print("Warning: No cells detected in any slice.")
+        return merged_mask
+
+    # Process the first non-empty slice
+    first_slice = segmented_stack[start_z]
     unique_labels = np.unique(first_slice)
     for label in unique_labels:
         if label == 0:
             continue
-        merged_mask[0][first_slice == label] = next_global_id
+        merged_mask[start_z][first_slice == label] = next_global_id
         next_global_id += 1
 
-    # Process subsequent slices.
-    for z_idx in range(1, z):
+    # Process subsequent slices from the one after the starting slice
+    for z_idx in range(start_z + 1, z):
         current_slice = segmented_stack[z_idx]
         prev_merged = merged_mask[z_idx - 1]
         unique_labels = np.unique(current_slice)
@@ -64,7 +76,7 @@ def merge_3d_masks(segmented_stack, overlap_threshold=0.1):
 
 
 class ImageProcessor3D:
-    def __init__(self, model_type="cyto", multi_channel=False, selected_channel=1, pretrained_model=None):
+    def __init__(self, model_type="cyto", multi_channel=False, selected_channel=1, pretrained_model=None, diameter=None, cellprob_threshold=0.0, flow_threshold=0.4):
         """
         Initialize the ImageProcessor3D with a specific Cellpose model type.
 
@@ -72,85 +84,31 @@ class ImageProcessor3D:
         :param multi_channel: bool, whether the input image is multi-channel.
         :param selected_channel: int, the channel (1-4) to use for segmentation.
         :param pretrained_model: str, path to custom model weights. If None, uses the default model.
+        :param diameter: float, cell diameter for segmentation. If None, Cellpose estimates it.
+        :param cellprob_threshold: float, cell probability threshold.
+        :param flow_threshold: float, flow error threshold.
         """
         self.multi_channel = multi_channel
         self.selected_channel = selected_channel
         self.using_custom_model = pretrained_model is not None
+        self.diameter = diameter
+        self.cellprob_threshold = cellprob_threshold
+        self.flow_threshold = flow_threshold
         
-        if pretrained_model is not None:
-            print(f"Loading custom model weights from: {pretrained_model}")
-            # Check if the file is a PyTorch/Lightning checkpoint
-            if self._is_pytorch_checkpoint(pretrained_model):
-                self.model = self._load_from_pytorch_checkpoint(pretrained_model, model_type)
-            else:
-                # Use standard Cellpose loading for .npy files or other formats
-                self.model = models.CellposeModel(pretrained_model=pretrained_model)
+        if self.using_custom_model:
+            print(f"✅ Loading custom model weights from: {pretrained_model}")
+            self.model = models.CellposeModel(pretrained_model=pretrained_model)
         else:
+            print(f"✅ Loading default Cellpose model: {model_type}")
             self.model = models.CellposeModel(model_type=model_type)
         
-        print(f"Cellpose model initialized. Multi-channel mode: {self.multi_channel}. Selected channel: {self.selected_channel}")
+        print(f"🔧 Cellpose model initialized successfully")
+        print(f"📺 Multi-channel mode: {self.multi_channel}")
+        print(f"📡 Selected channel: {self.selected_channel}")
         if self.using_custom_model:
-            print(f"Using custom model weights: {pretrained_model}")
+            print(f"🎯 Using custom model weights: {pretrained_model}")
         else:
-            print(f"Using default model type: {model_type}")
-
-    def _is_pytorch_checkpoint(self, file_path):
-        """
-        Check if the file is a PyTorch/Lightning checkpoint.
-        
-        :param file_path: str, path to the file
-        :return: bool, True if it's a PyTorch checkpoint
-        """
-        try:
-            # Try to load the file as a PyTorch checkpoint
-            checkpoint = torch.load(file_path, map_location="cpu")
-            # Check if it has the expected structure
-            return isinstance(checkpoint, dict) and ("state_dict" in checkpoint or any(k.endswith(".weight") for k in checkpoint.keys()))
-        except:
-            return False
-
-    def _load_from_pytorch_checkpoint(self, checkpoint_path, model_type):
-        """
-        Load a model from a PyTorch/Lightning checkpoint.
-        
-        :param checkpoint_path: str, path to the checkpoint file
-        :param model_type: str, type of model to initialize if needed
-        :return: CellposeModel instance with loaded weights
-        """
-        print("Loading PyTorch/Lightning checkpoint...")
-        try:
-            # Load the checkpoint
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
-            
-            # Initialize a base CellposeModel
-            model = models.CellposeModel(model_type=model_type)
-            
-            # Extract the state dict
-            if "state_dict" in checkpoint:
-                state_dict = checkpoint["state_dict"]
-            else:
-                state_dict = checkpoint
-            
-            # Load the state dict into the model
-            # First, check if we need to remove 'model.' prefix from keys
-            if all(k.startswith('model.') for k in state_dict.keys() if k.endswith('.weight')):
-                state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
-            
-            # Try to load the state dict
-            try:
-                model.net.load_state_dict(state_dict)
-                print("Successfully loaded weights into model")
-            except Exception as e:
-                print(f"Warning: Could not load state dict directly: {e}")
-                print("Attempting to load with strict=False...")
-                model.net.load_state_dict(state_dict, strict=False)
-                print("Successfully loaded weights with strict=False")
-            
-            return model
-        except Exception as e:
-            print(f"Error loading PyTorch checkpoint: {e}")
-            print("Falling back to default CellposeModel")
-            return models.CellposeModel(model_type=model_type)
+            print(f"🎯 Using default model type: {model_type}")
 
     def process_image(self, input_path, output_dir):
         """
@@ -176,18 +134,50 @@ class ImageProcessor3D:
 
     def load_and_normalize_image(self, input_path):
         """
-        Load and normalize the 3D image stack to range 0-255.
+        Load and normalize the 3D image stack with per-slice normalization.
+        Each slice is normalized individually to 0-255 range, matching Cellpose GUI behavior.
 
         :param input_path: str, path to the input TIFF image.
         :return: Normalized 3D numpy array.
         """
         image_stack = tiff.imread(input_path)
         
+        print(f"Original image stack shape: {image_stack.shape}")
+        print(f"Image data type: {image_stack.dtype}")
+        print(f"Image intensity range: {image_stack.min()} - {image_stack.max()}")
+        
         if self.multi_channel and image_stack.ndim == 4:
             print("Detected multi-channel image with shape:", image_stack.shape)
-        
-        normalized_stack = (image_stack - image_stack.min()) / (image_stack.max() - image_stack.min()) * 255.0
-        print(f"Loaded and normalized image stack with shape: {image_stack.shape}")
+
+        if image_stack.ndim == 3:
+            # Single-channel 3D stack
+            normalized_stack = np.zeros_like(image_stack, dtype=np.uint8)
+            for z in range(image_stack.shape[0]):
+                slice_ = image_stack[z].astype(np.float32)
+                slice_range = slice_.ptp()  # peak-to-peak (max - min)
+                if slice_range > 0:
+                    slice_ = (slice_ - slice_.min()) / (slice_range + 1e-8) * 255.0
+                else:
+                    slice_ = np.zeros_like(slice_)
+                normalized_stack[z] = slice_.astype(np.uint8)  # Convert to uint8
+                print(f"Slice {z}: range {slice_.min():.1f} - {slice_.max():.1f} (uint8)")
+        elif image_stack.ndim == 4:
+            # Multi-channel 3D stack
+            normalized_stack = np.zeros_like(image_stack, dtype=np.uint8)
+            for z in range(image_stack.shape[0]):
+                for c in range(image_stack.shape[1]):
+                    slice_ = image_stack[z, c].astype(np.float32)
+                    slice_range = slice_.ptp()  # peak-to-peak (max - min)
+                    if slice_range > 0:
+                        slice_ = (slice_ - slice_.min()) / (slice_range + 1e-8) * 255.0
+                    else:
+                        slice_ = np.zeros_like(slice_)
+                    normalized_stack[z, c] = slice_.astype(np.uint8)  # Convert to uint8
+                    print(f"Slice {z}, Channel {c}: range {slice_.min():.1f} - {slice_.max():.1f} (uint8)")
+        else:
+            raise ValueError(f"Unsupported image shape: {image_stack.shape}")
+
+        print(f"✅ Loaded and normalized image stack with shape: {normalized_stack.shape}")
         return normalized_stack
 
     def segment_3d(self, image_stack):
@@ -201,21 +191,46 @@ class ImageProcessor3D:
             segmented_stack = np.zeros(image_stack.shape, dtype=np.uint16)
 
         all_flows = []
-        print("Starting segmentation...")
+        total_cells_detected = 0
+        print("🔬 Starting segmentation...")
         for z in range(image_stack.shape[0]):
             print(f"Processing slice {z + 1}/{image_stack.shape[0]}...")
+            
+            # Get the slice for evaluation
+            eval_slice = image_stack[z]
+            print(f"  📊 Eval input - dtype: {eval_slice.dtype}, shape: {eval_slice.shape}, range: {eval_slice.min()} - {eval_slice.max()}")
+            
             if self.multi_channel:
                 # Use the selected channel (convert from 1-based to 0-based indexing).
                 masks, flows, *_ = self.model.eval(
-                    image_stack[z],
-                    diameter=None,
-                    channels=[self.selected_channel - 1, 0]
+                    eval_slice,
+                    diameter=self.diameter,
+                    channels=[self.selected_channel - 1, 0],
+                    cellprob_threshold=self.cellprob_threshold,
+                    flow_threshold=self.flow_threshold
                 )
             else:
-                masks, flows, *_ = self.model.eval(image_stack[z], diameter=None, channels=[0, 0])
+                masks, flows, *_ = self.model.eval(
+                    eval_slice,
+                    diameter=self.diameter,
+                    channels=[0, 0],
+                    cellprob_threshold=self.cellprob_threshold,
+                    flow_threshold=self.flow_threshold
+                )
+            
+            # Count detected objects (excluding background = 0)
+            unique_labels = np.unique(masks)
+            n_cells_in_slice = len(unique_labels) - 1 if 0 in unique_labels else len(unique_labels)
+            total_cells_detected += n_cells_in_slice
+            
+            print(f"  🎯 Slice {z + 1}: {n_cells_in_slice} cells detected")
+            if n_cells_in_slice > 0:
+                print(f"  📊 Mask labels: {unique_labels[:10]}...")  # Show first 10 labels
+            
             segmented_stack[z] = masks
             all_flows.append(flows)
-        print("Segmentation completed.")
+            
+        print(f"✅ Segmentation completed. Total cells detected: {total_cells_detected}")
         return segmented_stack, all_flows
 
     def save_results(self, image_stack, segmented_stack, merged_mask, flows, output_dir, input_filename):
@@ -253,9 +268,24 @@ class ImageProcessor3D:
         print(f"Results saved to:\n- {npy_output_path}\n- {tiff_output_path}")
 
 if __name__ == "__main__":
-    input_image_path = "path_to_input_image.tif"  # Replace with actual path.
-    output_directory = "output_dir"  # Replace with actual path.
+    # This is an example of how to run the processor directly.
+    input_image_path = "path_to_input_image.tif"  # Replace with actual path
+    output_directory = "output_dir"  # Replace with actual path
     
-    # For example, using channel 2.
-    processor = ImageProcessor3D(model_type="cyto", selected_channel=2)
-    processor.process_image(input_image_path, output_directory)
+    # Example for using the default 'cyto' model
+    print("Running with default 'cyto' model...")
+    processor_default = ImageProcessor3D(model_type="cyto", selected_channel=1)
+    # processor_default.process_image(input_image_path, output_directory)
+
+    # Example for using a custom model
+    # model_path = "path_to_your_model"  # Replace with actual path
+    # if os.path.exists(model_path):
+    #     print("\nRunning with custom model...")
+    #     processor_custom = ImageProcessor3D(
+    #         selected_channel=1,
+    #         pretrained_model=model_path,
+    #         diameter=30.0
+    #     )
+    #     processor_custom.process_image(input_image_path, output_directory)
+    # else:
+    #     print("\nCustom model path not found. Skipping custom model example.")
